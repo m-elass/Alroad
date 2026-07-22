@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: knave
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: KNAVE_PASSWORD
+        sync: false
