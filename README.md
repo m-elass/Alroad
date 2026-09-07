@@ -3,6 +3,8 @@
 Descargas y conversiones de archivos, con estética propia. Corre entero en tu
 equipo: nada sale de tu ordenador salvo lo que tú descargas.
 
+![Tu cuaderno](alroad.png)
+
 ## Qué hace
 
 **Descargar** — pega hasta 20 enlaces (uno por línea) de YouTube, Spotify y
