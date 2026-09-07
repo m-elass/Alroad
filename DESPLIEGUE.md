@@ -25,16 +25,18 @@ Se activa con la variable de entorno `KNAVE_SERVER=1` (el Dockerfile ya la trae)
   `KNAVE_TTL_HOURS` horas (24 por defecto), para que el disco no se llene.
 - Los botones «Abrir carpeta / Mostrar en carpeta» desaparecen solos: no tienen
   sentido en remoto.
-- `KNAVE_PASSWORD=loquesea` pone un **candado global**: el navegador pedirá
-  usuario (da igual cuál) y esa contraseña.
-  **¿Prefieres acceso libre para tu gente?** No pongas la variable — o bórrala
-  en Render → Environment → Save (redespliega solo). Sin login, y cada
-  visitante sigue completamente aislado en su propia sesión.
+- `KNAVE_CODE=elcodigoquequieras` activa la **puerta de acceso**: una pantalla
+  propia de KNAVE (con el ojo, nada del cuadro feo del navegador) que pide un
+  código. Quien lo tenga entra; el pase le dura 30 días en ese dispositivo.
+  Incluye freno anti fuerza bruta: tras varios fallos esa IP espera 5 minutos.
+  **¿Prefieres acceso libre?** No pongas la variable — o bórrala en Render →
+  Environment → Save. Cada visitante sigue aislado en su propia sesión.
+  (`KNAVE_PASSWORD` sigue funcionando como sinónimo, por compatibilidad.)
 
 | Variable | Efecto | Por defecto |
 |---|---|---|
 | `KNAVE_SERVER` | `1` = modo web multiusuario | apagado |
-| `KNAVE_PASSWORD` | contraseña de acceso al sitio | sin candado |
+| `KNAVE_CODE` | código de la puerta de acceso | sin puerta |
 | `KNAVE_TTL_HOURS` | horas de vida de los archivos | `24` |
 | `KNAVE_MAX_MB` | tamaño máx. por archivo subido | `500` |
 | `PORT` | puerto de escucha | `8666` |
@@ -69,8 +71,8 @@ git push -u origin main
 
 En **Environment** añade:
 
-- `KNAVE_PASSWORD` → tu contraseña (opcional: **omítela y la app queda
-  abierta, sin pantalla de login**; el aislamiento por sesiones se mantiene).
+- `KNAVE_CODE` → el código que compartirás con tu gente (opcional: **omítelo y
+  la app queda abierta**; el aislamiento por sesiones se mantiene).
 
 `KNAVE_SERVER=1` ya viene en el Dockerfile. Opcional: en Settings →
 Health Check Path pon `/healthz`.

@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# yt-dlp envejece rápido: siempre la última versión en cada build
+RUN pip install --no-cache-dir -U yt-dlp
 COPY . .
 
 ENV KNAVE_SERVER=1

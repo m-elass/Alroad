@@ -362,10 +362,46 @@ textarea#url:focus{outline:none;border-color:var(--blood);
 .mrow input[type=text]:focus{outline:none;border-color:var(--blood)}
 .ckrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 #ck-state{font-size:12.5px;color:var(--smoke);letter-spacing:.06em}
+#ck-paste-box{margin-top:10px}
+#ck-text{width:100%;background:#0c0508;border:1px solid var(--line);color:var(--ash);
+  font-family:ui-monospace,monospace;font-size:11.5px;padding:10px;resize:vertical;
+  clip-path:polygon(8px 0,100% 0,100% 100%,0 100%,0 8px)}
+#ck-text:focus{outline:none;border-color:var(--blood)}
 .ck-hint{margin-top:9px;font-size:11.5px;color:#6b555c;line-height:1.55;max-width:52ch}
 .mclose{position:absolute;top:14px;right:16px;appearance:none;border:none;background:none;
   color:var(--smoke);cursor:pointer;font-size:20px;line-height:1}
 .mclose:hover{color:var(--blood)}
+
+/* ═══ PUERTA DE ACCESO ═══ */
+.gate{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:24px;
+  background:radial-gradient(ellipse 70% 60% at 50% 42%, rgba(40,8,18,.55), rgba(6,3,7,.94) 70%),
+             rgba(6,3,7,.9);
+  backdrop-filter:blur(6px);animation:gatein .5s ease both}
+.gate[hidden]{display:none}
+@keyframes gatein{from{opacity:0}to{opacity:1}}
+.gate-inner{display:flex;flex-direction:column;align-items:center;gap:16px;
+  max-width:min(420px,100%);text-align:center;animation:fadeup .6s .1s ease both}
+.gate-eye{width:min(46vw,190px);height:auto;
+  filter:drop-shadow(0 0 26px rgba(224,23,61,.5));animation:eyeglow 4.2s ease-in-out infinite}
+.gate-title{font-family:"Cinzel",serif;font-weight:900;font-size:clamp(30px,7vw,46px);
+  letter-spacing:.34em;text-indent:.34em;line-height:1;
+  background:linear-gradient(100deg,var(--ash) 30%,#cfc6bf 46%,var(--blood) 62%,var(--ember) 80%);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.gate-sub{color:var(--smoke);font-size:12px;letter-spacing:.34em;text-transform:uppercase;
+  margin-top:-6px}
+.gate-field{display:flex;flex-direction:column;gap:12px;width:100%;margin-top:10px}
+#gate-code{width:100%;background:#0c0508;border:1px solid var(--line);color:var(--ash);
+  font-family:"Jost";font-size:16px;letter-spacing:.16em;text-align:center;padding:16px 18px;
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  transition:border-color .2s,box-shadow .2s}
+#gate-code::placeholder{color:#5c4a50;letter-spacing:.1em}
+#gate-code:focus{outline:none;border-color:var(--blood);
+  box-shadow:0 0 0 1px var(--blood),0 0 26px rgba(224,23,61,.3)}
+#gate-go{width:100%;justify-content:center}
+.gate-err{min-height:20px;font-size:13.5px;color:#f0899d;letter-spacing:.02em}
+.gate.shake .gate-inner{animation:shake .45s}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}
+  40%{transform:translateX(9px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
 
 footer{position:relative;z-index:2;text-align:center;padding:0 20px 34px;
   color:#61474f;font-size:12px;letter-spacing:.14em}
@@ -450,6 +486,21 @@ footer b{color:#8a6570;font-weight:500}
   <i style="--x:90%;--d:14s;--dl:9s"></i>
 </div>
 <img class="eyeveil" src="/art/seal.png" alt="" aria-hidden="true">
+
+<!-- ═══ PUERTA DE ACCESO ═══ -->
+<div class="gate" id="gate" hidden>
+  <div class="gate-inner">
+    <img class="gate-eye" src="/art/eye.png" alt="" aria-hidden="true">
+    <h1 class="gate-title">KNAVE</h1>
+    <p class="gate-sub">Solo para los de la casa</p>
+    <div class="gate-field">
+      <input type="password" id="gate-code" inputmode="text" autocomplete="current-password"
+             placeholder="Código de acceso" aria-label="Código de acceso" spellcheck="false">
+      <button class="ignite" id="gate-go">Entrar</button>
+    </div>
+    <p class="gate-err" id="gate-err"></p>
+  </div>
+</div>
 
 <main class="stage">
 
@@ -599,8 +650,14 @@ footer b{color:#8a6570;font-weight:500}
       <span class="opt-label">Cookies del navegador (opcional)</span>
       <div class="ckrow">
         <label class="ghost" style="cursor:pointer">Subir cookies.txt<input type="file" id="ck-file" accept=".txt,text/plain" hidden></label>
+        <button class="ghost" id="ck-paste-btn">Pegar texto</button>
         <span id="ck-state">Sin cookies</span>
         <button class="ghost" id="ck-del" hidden>Quitar</button>
+      </div>
+      <div id="ck-paste-box" hidden>
+        <textarea id="ck-text" rows="4" spellcheck="false"
+          placeholder="Pega aquí el contenido completo de cookies.txt"></textarea>
+        <button class="ghost" id="ck-save" style="margin-top:8px">Guardar cookies</button>
       </div>
       <p class="ck-hint">Si YouTube pide «confirmar que no eres un robot», exporta tus cookies
         con una extensión tipo «Get cookies.txt LOCALLY» y súbelas: solo valen para tu sesión
@@ -966,6 +1023,22 @@ $("#ck-file").addEventListener("change", async e=>{
     toast("Cookies guardadas: tus descargas las usarán a partir de ahora.");
   }catch(err){ toast(err.message); }
 });
+$("#ck-paste-btn").addEventListener("click", ()=>{
+  const box = $("#ck-paste-box");
+  box.hidden = !box.hidden;
+  if(!box.hidden) $("#ck-text").focus();
+});
+$("#ck-save").addEventListener("click", async ()=>{
+  const text = $("#ck-text").value.trim();
+  if(!text){ toast("Pega primero el contenido de cookies.txt."); return; }
+  try{
+    await api("/api/cookies/text", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+    settings = await api("/api/settings"); paintCookies();
+    $("#ck-text").value = ""; $("#ck-paste-box").hidden = true;
+    toast("Cookies guardadas: tus descargas las usarán a partir de ahora.");
+  }catch(err){ toast(err.message); }
+});
 $("#ck-del").addEventListener("click", async ()=>{
   try{
     await api("/api/cookies/delete", {method:"POST"});
@@ -1012,8 +1085,31 @@ function applySettings(){
   renderQualities();
 }
 
+/* ═════════════ puerta de acceso ═════════════ */
+async function openGate(){
+  const gate = $("#gate"), err = $("#gate-err"), input = $("#gate-code");
+  const code = input.value.trim();
+  if(!code){ err.textContent = "Escribe el código."; input.focus(); return; }
+  $("#gate-go").disabled = true;
+  try{
+    const r = await fetch("/api/auth", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({code})});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || "No se pudo entrar.");
+    gate.hidden = true;
+    boot();
+  }catch(e){
+    err.textContent = e.message;
+    input.value = ""; input.focus();
+    gate.classList.add("shake");
+    setTimeout(()=>gate.classList.remove("shake"), 500);
+  }finally{ $("#gate-go").disabled = false; }
+}
+$("#gate-go").addEventListener("click", openGate);
+$("#gate-code").addEventListener("keydown", e=>{ if(e.key==="Enter") openGate(); });
+
 /* ═════════════ arranque ═════════════ */
-(async ()=>{
+async function boot(){
   if(matchMedia("(prefers-reduced-motion: reduce)").matches)
     document.querySelectorAll("animate").forEach(a=>a.remove());
   renderQualities();
@@ -1026,7 +1122,21 @@ function applySettings(){
   try{ OPS = await api("/api/operations"); }catch(e){ toast(e.message); }
   renderOps();
   try{ settings = await api("/api/settings"); applySettings(); }catch(e){}
+}
+
+(async ()=>{
+  try{
+    const st = await (await fetch("/api/auth/status")).json();
+    if(st.required && !st.granted){
+      $("#gate").hidden = false;
+      setTimeout(()=>$("#gate-code").focus(), 350);
+      return;                      // la app espera tras la puerta
+    }
+  }catch(e){}
+  boot();
 })();
+
+
 </script>
 </body>
 </html>

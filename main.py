@@ -11,8 +11,11 @@ Requiere: ffmpeg (audio/video). LibreOffice para conversiones a PDF.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import mimetypes
+import secrets
 import os
 import re
 import shutil
@@ -29,7 +32,7 @@ from urllib.parse import urlparse
 
 from fastapi import (FastAPI, File, Form, HTTPException, Request, Response,
                      UploadFile)
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 # ----------------------------------------------------------------------------
@@ -56,6 +59,77 @@ WORKSPACE.mkdir(exist_ok=True)
 SERVER_MODE = os.environ.get("KNAVE_SERVER") == "1"
 SITE_PASSWORD = os.environ.get("KNAVE_PASSWORD", "")
 SESSION_TTL_HOURS = int(os.environ.get("KNAVE_TTL_HOURS", "24"))
+# Código de acceso: KNAVE_CODE (o el antiguo KNAVE_PASSWORD, por compatibilidad)
+ACCESS_CODE = os.environ.get("KNAVE_CODE", "") or os.environ.get("KNAVE_PASSWORD", "")
+AUTH_COOKIE = "knave_key"
+AUTH_DAYS = 30
+
+
+def _server_secret() -> bytes:
+    """Secreto local para firmar los pases; se crea solo la primera vez."""
+    f = CONFIG_DIR / "secret.key"
+    try:
+        return f.read_bytes()
+    except OSError:
+        key = secrets.token_bytes(32)
+        try:
+            f.write_bytes(key)
+            os.chmod(f, 0o600)
+        except OSError:
+            pass
+        return key
+
+
+SECRET = _server_secret()
+
+
+def _make_pass() -> str:
+    """Pase firmado: caduca solo y no se puede falsificar."""
+    exp = str(int(time.time()) + AUTH_DAYS * 86400)
+    sig = hmac.new(SECRET, f"{exp}|{ACCESS_CODE}".encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{exp}.{sig}"
+
+
+def _valid_pass(token: str) -> bool:
+    try:
+        exp, sig = token.split(".", 1)
+        if int(exp) < time.time():
+            return False
+        good = hmac.new(SECRET, f"{exp}|{ACCESS_CODE}".encode(),
+                        hashlib.sha256).hexdigest()[:32]
+        return hmac.compare_digest(sig, good)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# Freno a la fuerza bruta: tras varios fallos, esa IP espera un rato
+_TRIES: dict[str, list] = {}
+_TRIES_LOCK = threading.Lock()
+MAX_TRIES, LOCK_SECONDS = 8, 300
+
+
+def _client_ip(request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() if fwd
+            else (request.client.host if request.client else "?"))
+
+
+def _locked_for(ip: str) -> int:
+    with _TRIES_LOCK:
+        fails, until = _TRIES.get(ip, [0, 0.0])
+        return max(0, int(until - time.time())) if fails >= MAX_TRIES else 0
+
+
+def _note_try(ip: str, ok: bool) -> None:
+    with _TRIES_LOCK:
+        if ok:
+            _TRIES.pop(ip, None)
+            return
+        fails, _ = _TRIES.get(ip, [0, 0.0])
+        fails += 1
+        _TRIES[ip] = [fails, time.time() + LOCK_SECONDS if fails >= MAX_TRIES else 0.0]
+
+
 SESSIONS_DIR = CONFIG_DIR / "sessions"
 if SERVER_MODE:
     SESSIONS_DIR.mkdir(exist_ok=True)
@@ -101,18 +175,15 @@ app = FastAPI(title="KNAVE", docs_url=None, redoc_url=None)
 
 @app.middleware("http")
 async def _access_mw(request: Request, call_next):
-    if SITE_PASSWORD and request.url.path != "/healthz":
-        header = request.headers.get("authorization", "")
-        granted = False
-        if header.startswith("Basic "):
-            try:
-                granted = (base64.b64decode(header[6:]).decode("utf-8")
-                           .split(":", 1)[1] == SITE_PASSWORD)
-            except Exception:  # noqa: BLE001
-                granted = False
-        if not granted:
-            return Response("KNAVE: se necesita la contraseña.", status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="KNAVE"'})
+    path = request.url.path
+    if ACCESS_CODE:
+        # La portada y su arte cargan siempre: la puerta se dibuja dentro de la app.
+        public = (path in ("/", "/index.html", "/healthz", "/manifest.json",
+                           "/api/auth", "/api/auth/status")
+                  or path.startswith(("/art/", "/icon-", "/apple-touch-icon")))
+        if not public and not _valid_pass(request.cookies.get(AUTH_COOKIE, "")):
+            return Response('{"detail":"Necesitas el código de acceso."}',
+                            status_code=401, media_type="application/json")
     sid, fresh = request.cookies.get("knave_sid", ""), False
     if SERVER_MODE and not re.fullmatch(r"[0-9a-f]{32}", sid or ""):
         sid, fresh = uuid.uuid4().hex, True
@@ -508,6 +579,39 @@ def _run_spotdl(jid: str, url: str, quality: str, fmt: str, outdir: Path,
         raise RuntimeError("No se pudo descargar ninguna pista de ese enlace.")
 
 
+def _friendly_error(raw: str, is_spotify: bool = False) -> str:
+    """Convierte los errores crípticos de yt-dlp en instrucciones claras."""
+    low = raw.lower()
+    bot = ("confirm you're not a bot", "sign in to confirm", "unable to download api page",
+           "failed to extract any player response", "player response", "http error 403",
+           "unable to extract yt initial", "requested content is not available")
+    if any(k in low for k in bot):
+        return ("YouTube está bloqueando a este servidor (pide verificar que no es un robot). "
+                "Es una limitación de los alojamientos en la nube, no un fallo de la app. "
+                "Solución: abre Ajustes ⚙ y pega tus cookies de YouTube; o usa KNAVE desde tu "
+                "propio ordenador, donde funciona sin restricciones.")
+    if "private video" in low or "video unavailable" in low or "removed by the uploader" in low:
+        return "Ese vídeo es privado, se ha eliminado o no está disponible en esta región."
+    if "members-only" in low or "join this channel" in low:
+        return "Ese vídeo es exclusivo para miembros del canal."
+    if "age" in low and ("restrict" in low or "confirm your age" in low):
+        return ("Vídeo con restricción de edad: necesita cookies de una cuenta verificada "
+                "(Ajustes ⚙ → cookies).")
+    if "unsupported url" in low or "no video formats" in low:
+        return "Ese enlace no está soportado o no contiene ningún vídeo descargable."
+    if "requested format is not available" in low:
+        return "Esa calidad no está disponible para este vídeo; prueba con otra."
+    if "live event" in low or "premieres in" in low:
+        return "Es una emisión en directo o un estreno todavía no disponible."
+    if "ffmpeg" in low:
+        return "Falta ffmpeg en el servidor, necesario para procesar audio y vídeo."
+    if "timed out" in low or "timeout" in low or "connection" in low:
+        return "Se perdió la conexión con el servidor de origen. Inténtalo de nuevo."
+    if is_spotify and ("no results" in low or "not found" in low):
+        return "No se encontró esa pista. Comprueba que el enlace de Spotify sea público."
+    return raw[:300]
+
+
 def _download_worker(jid: str, url: str, mode: str, quality: str, fmt: str,
                      playlist: bool, subs: bool, embed: bool) -> None:
     outdir = _job_dir(jid)
@@ -541,8 +645,8 @@ def _download_worker(jid: str, url: str, mode: str, quality: str, fmt: str,
         _update(jid, status="cancelled", detail="Cancelado.", progress=100)
     except Exception as exc:  # noqa: BLE001
         msg = re.sub(r"\x1b\[[0-9;]*m", "", str(exc) or exc.__class__.__name__)
-        msg = msg.replace("ERROR: ", "").strip()[:400]
-        _fail(jid, f"No se pudo descargar: {msg}")
+        msg = msg.replace("ERROR: ", "").strip()
+        _fail(jid, _friendly_error(msg, _is_spotify(url)))
     finally:
         watchdog.cancel()
         shutil.rmtree(outdir, ignore_errors=True)
@@ -1039,6 +1143,53 @@ async def upload_cookies(request: Request, file: UploadFile = File(...)):
     if "\t" not in data.decode("utf-8", "ignore"):
         raise HTTPException(400, "Eso no parece un cookies.txt en formato Netscape.")
     _cookies_path(request.state.sid).write_bytes(data)
+    return {"ok": True}
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    """¿Hace falta código? ¿Ya tengo pase?"""
+    return {"required": bool(ACCESS_CODE),
+            "granted": (not ACCESS_CODE
+                        or _valid_pass(request.cookies.get(AUTH_COOKIE, "")))}
+
+
+@app.post("/api/auth")
+async def auth_enter(request: Request, payload: dict):
+    if not ACCESS_CODE:
+        return {"ok": True}
+    ip = _client_ip(request)
+    if (wait := _locked_for(ip)):
+        raise HTTPException(429, f"Demasiados intentos. Espera {wait // 60 + 1} minuto(s).")
+    code = str(payload.get("code", ""))
+    if not hmac.compare_digest(code, ACCESS_CODE):
+        _note_try(ip, False)
+        raise HTTPException(401, "Código incorrecto.")
+    _note_try(ip, True)
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(AUTH_COOKIE, _make_pass(), max_age=AUTH_DAYS * 86400,
+                    httponly=True, samesite="lax")
+    return resp
+
+
+@app.post("/api/auth/exit")
+async def auth_exit():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(AUTH_COOKIE)
+    return resp
+
+
+@app.post("/api/cookies/text")
+async def paste_cookies(request: Request, payload: dict):
+    text = str(payload.get("text", "")).strip()
+    if not text:
+        raise HTTPException(400, "Pega el contenido del archivo cookies.txt.")
+    if len(text) > 1024 * 1024:
+        raise HTTPException(400, "El texto es demasiado grande.")
+    if "\t" not in text:
+        raise HTTPException(400, "Eso no parece un cookies.txt en formato Netscape "
+                                 "(las líneas van separadas por tabulaciones).")
+    _cookies_path(request.state.sid).write_text(text, "utf-8")
     return {"ok": True}
 
 

@@ -26,10 +26,15 @@ cientos de sitios más:
 pestaña puedes abrir la carpeta, mostrar un archivo, descargar una copia o
 eliminarlo.
 
-Además: cancelación de trabajos en caliente, notificaciones nativas al
+Además: **puerta de acceso con código** para compartirla solo con quien
+quieras, cancelación de trabajos en caliente, notificaciones nativas al
 terminar, icono en la bandeja con «Iniciar con Windows» y ajustes persistentes.
 
 ## Llevarla al móvil, iPad y web
+
+**¿Quieres que las descargas nunca fallen?** Sigue **GUIA_CASA.md**: KNAVE se
+ejecuta en tu PC y entras desde el móvil con Tailscale, así YouTube ve tu IP
+doméstica y no hay bloqueos. Incluye los lanzadores `casa.bat` / `casa.sh`.
 
 Guía completa en **DESPLIEGUE.md**: Render con Docker, contraseña de acceso,
 modo multiusuario con sesiones aisladas, opción privada con Tailscale e
